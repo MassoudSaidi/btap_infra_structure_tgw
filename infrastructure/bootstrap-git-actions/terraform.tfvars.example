@@ -1,0 +1,28 @@
+# Developer name
+# Could be any name (it's just used for local state management)
+# Allowed Characters: Alphanumeric characters (a-z, A-Z, 0-9) and the symbols +, =, ,, ., @, _, -.
+developer_name = "Hajir"
+
+# Docker
+docker_username = "Hajir H"
+docker_password = "CHANGE_ME_DOCKER_PASSWORD"
+
+# GitHub
+github_token = "CHANGE_ME_GITHUB_TOKEN"
+github_owner = "Hajir H"
+github_repo  = "surrogateModel_1"   # use lowercase repo name
+
+# Deployment configuration values that tell GitHub Actions workflow which ECS resources to update.
+ecs_cluster_name = "btap-app4-dev-cluster"
+ecs_service_name = "btap-app4-dev-service"
+ecs_task_family = "btap-app4-dev-task"
+
+# Cognito configuration
+cognito_region = "ca-central-1"
+cognito_user_pool_id = "ca-central-1_jxxxxxxxxxxxx8t"
+cognito_app_client_id = "4osaxxxxxxxxxxxao9kus1t"
+cognito_app_public_client_id = "407500xxxxxxxxxxxx5duupnv47a"   # For Swagger/Postman...
+cognito_app_client_secret = "a4vrk8lcoxxxxxxxxxxxxxxxx1ijauhsol3"
+cognito_domain = "https://btap-identity-dev-auth.auth.ca-central-1.amazoncognito.com"
+app_base_url = "http://btap-app4-dev-alb-1261227763.ca-central-1.elb.amazonaws.com"
+version_string = "v1.3.0"

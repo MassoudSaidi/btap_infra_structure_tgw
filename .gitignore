@@ -1,0 +1,6 @@
+.terragrunt-cache/
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+.aws/
