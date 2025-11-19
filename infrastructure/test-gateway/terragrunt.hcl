@@ -23,5 +23,5 @@ EOF
 }
 
 inputs = {
-  surrogate_workload_vpc_id = "vpc-0962e12a85acbfb49"  # "vpc-0809102c90503ef2d"  # From client's info; confirm if needed
+  surrogate_workload_vpc_id = "vpc-0c095736cf65241cb"  # "vpc-0809102c90503ef2d"  # From client's info; confirm if needed
 }

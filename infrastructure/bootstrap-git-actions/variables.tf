@@ -115,3 +115,18 @@ variable "version_string" {
   description = "Application version string"
   type        = string
 }
+
+variable "redis_endpoint" {
+  description = "Redis endpoint address"
+  type        = string
+}
+
+variable "redis_port" {
+  description = "Redis port"
+  type        = string
+}
+
+variable "bucket_name" {
+  description = "S3 bucket name"
+  type        = string
+}

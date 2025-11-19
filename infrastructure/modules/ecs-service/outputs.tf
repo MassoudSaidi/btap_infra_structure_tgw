@@ -1,6 +1,3 @@
-output "cluster_name" {
-  value = aws_ecs_cluster.main.name
-}
 
 # This output block will collect all the necessary names for the Python script.
 output "nuke_script_config" {

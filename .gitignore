@@ -2,5 +2,7 @@
 *.tfstate
 *.tfstate.*
 .terraform/
+.terraform.tfstate.lock.info
 *.tfvars
+.terraform.lock.hcl
 .aws/

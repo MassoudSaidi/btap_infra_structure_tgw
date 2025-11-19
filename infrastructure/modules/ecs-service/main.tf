@@ -17,6 +17,10 @@ data "aws_subnets" "private" {
   # Optional: Add tags filter if subnets have specific tags, e.g., tags = { Type = "private" }
 }
 
+data "aws_subnet" "single_private_subnet" {
+  id = data.aws_subnets.private.ids[0]
+}
+
 # 2. Security Groups
 
 # 2.1 Security Group for the Application Load Balancer (ALB)
@@ -62,6 +66,60 @@ resource "aws_security_group" "ecs_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# 2.3 NEW: Security Group for ElastiCache (Redis)
+# Allows traffic ONLY from the ECS Security Group on the Redis port.
+resource "aws_security_group" "redis_sg" {
+  name        = "${local.base_name}-redis-sg"
+  description = "Allow inbound traffic from ECS to Redis"
+  vpc_id      = data.aws_vpc.main.id
+
+  # Ingress from the ECS Security Group to Redis port
+  ingress {
+    from_port       = 6379 # Default Redis port
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${local.base_name}-redis-sg"
+  }
+}
+
+# --- ELASTICACHE RESOURCES ---
+
+# A. ElastiCache Subnet Group
+# This tells ElastiCache which private subnets it can live in.
+resource "aws_elasticache_subnet_group" "redis_subnet_group" {
+  name       = "${local.base_name}-redis-subnet-group"
+  subnet_ids = data.aws_subnets.private.ids
+}
+
+# B. ElastiCache Parameter Group
+resource "aws_elasticache_parameter_group" "redis7" {
+  name   = "${local.base_name}-redis7-param-group"
+  family = "redis7"
+}
+
+# C. The ElastiCache Redis Cluster Itself
+resource "aws_elasticache_cluster" "redis" {
+  cluster_id           = "${local.base_name}-redis-cluster"
+  engine               = "redis"
+  engine_version       = "7.0"
+  node_type            = "cache.t3.micro"
+  num_cache_nodes      = 1
+  parameter_group_name = aws_elasticache_parameter_group.redis7.name
+  subnet_group_name    = aws_elasticache_subnet_group.redis_subnet_group.name
+  security_group_ids   = [aws_security_group.redis_sg.id]
 }
 
 # 3. ECS Cluster
@@ -132,6 +190,10 @@ resource "aws_autoscaling_group" "ecs_asg" {
   max_size            = 2
   min_size            = 1
   vpc_zone_identifier = data.aws_subnets.private.ids  # Private subnets
+  # vpc_zone_identifier = [data.aws_subnet.single_private_subnet.id]  # limit to one AZ
+
+  protect_from_scale_in = true       # prevents ECS from terminating the last healthy one
+  default_cooldown      = 300  
 
   launch_template {
     id      = aws_launch_template.ecs_launch_template.id
@@ -150,10 +212,6 @@ resource "aws_ecs_capacity_provider" "ecs_capacity_provider" {
   name = local.names.capacity_provider_name
   auto_scaling_group_provider {
     auto_scaling_group_arn = aws_autoscaling_group.ecs_asg.arn
-    managed_scaling {
-      status          = "ENABLED"
-      target_capacity = 100
-    }
   }
 }
 
@@ -209,15 +267,18 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# 9. CLOUDWATCH LOG GROUP
-resource "aws_cloudwatch_log_group" "app_logs" {
-  name              = "/ecs/${local.names.service_name}"
-  retention_in_days = 30
+# # 9. CLOUDWATCH LOG GROUP   # NRCan prevents destroy
+# resource "aws_cloudwatch_log_group" "app_logs" {
+#   name              = "/ecs/${local.names.service_name}"
+#   # retention_in_days = 30
 
-  tags = {
-    Name = "${local.names.service_name}-logs"
-  }
-}
+#   tags = {
+#     Name = "${local.names.service_name}-logs"
+#   }
+#   lifecycle {
+#     prevent_destroy = true
+#   }
+# }
 
 # 10. ECS Task Definition
 resource "aws_ecs_task_definition" "app" {
@@ -230,7 +291,9 @@ resource "aws_ecs_task_definition" "app" {
   container_definitions = jsonencode([
     {
       name      = "app"
-      image     = "docker.io/massoudsaidi/massoud_btap_1:4.0.5"
+      # image     = "docker.io/massoudsaidi/massoud_btap_1:4.0.5"
+      # image     = "mendhak/http-helloworld:latest"
+      image       = "mendhak/http-https-echo:31"
       essential = true
       portMappings = [{
         containerPort = 8000
@@ -240,20 +303,25 @@ resource "aws_ecs_task_definition" "app" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.app_logs.name
+          "awslogs-group"         = "/ecs/${local.names.service_name}"   # hard-coded name (AWS will auto-create if missing) originally was: aws_cloudwatch_log_group.app_logs.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
       }
       environment = [
         { name = "APP_BASE_URL", value = aws_apigatewayv2_stage.default.invoke_url },
-        { name = "COGNITO_APP_CLIENT_ID", value = "4osa36mkhu8f2f70gfao9kus1t" },
-        { name = "COGNITO_APP_PUBLIC_CLIENT_ID", value = "407500nv5olochli5duupnv47a" },
-        { name = "COGNITO_DOMAIN", value = "https://btap-identity-dev-auth.auth.ca-central-1.amazoncognito.com" },
+        { name = "COGNITO_APP_CLIENT_ID", value = "-" },
+        { name = "COGNITO_APP_PUBLIC_CLIENT_ID", value = "-" },
+        { name = "COGNITO_DOMAIN", value = "-" },
         { name = "COGNITO_REGION", value = var.aws_region },
-        { name = "COGNITO_USER_POOL_ID", value = "ca-central-1_jkcyFtg8t" },
-        { name = "COGNITO_APP_CLIENT_SECRET", value = "a4vrk8lco6nuicgsbvjovu08d3ic14vaequf2tkh21ijauhsol3" },
-        { name = "VERSION_STRING", value = "v1.9.0" }
+        { name = "COGNITO_USER_POOL_ID", value = "-" },
+        { name = "COGNITO_APP_CLIENT_SECRET", value = "-" },
+
+        { name = "REDIS_ENDPOINT", value = aws_elasticache_cluster.redis.cache_nodes[0].address },
+        { name = "REDIS_PORT", value = tostring(aws_elasticache_cluster.redis.cache_nodes[0].port) },        
+        { name = "VERSION_STRING", value = "v8.1.2" },
+        { name = "BUCKET_NAME", value = aws_s3_bucket.uploads.bucket },
+        { name = "HTTP_PORT", value = "8000" }
       ]
     }
   ])
@@ -269,6 +337,11 @@ resource "aws_ecs_service" "app_service" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
+
+  # Add deployment configuration
+  deployment_minimum_healthy_percent = 0  # Allow old task to stop before new one starts
+  deployment_maximum_percent         = 100 # If 200, (provided enough memory) Allow both old and new tasks temporarily
+
 
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.ecs_capacity_provider.name
@@ -295,117 +368,117 @@ resource "aws_ecs_service" "app_service" {
 
 # 12. CLOUDWATCH ALARMS
 
-resource "aws_cloudwatch_metric_alarm" "ecs_high_cpu" {
-  alarm_name          = "${local.names.service_name}-high-cpu"
-  alarm_description   = "This alarm triggers if the ECS service CPU utilization is above 80% for 5 minutes."
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = "1"
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/ECS"
-  period              = "300"
-  statistic           = "Average"
-  threshold           = "80"
+# resource "aws_cloudwatch_metric_alarm" "ecs_high_cpu" {
+#   alarm_name          = "${local.names.service_name}-high-cpu"
+#   alarm_description   = "This alarm triggers if the ECS service CPU utilization is above 80% for 5 minutes."
+#   comparison_operator = "GreaterThanOrEqualToThreshold"
+#   evaluation_periods  = "1"
+#   metric_name         = "CPUUtilization"
+#   namespace           = "AWS/ECS"
+#   period              = "300"
+#   statistic           = "Average"
+#   threshold           = "80"
 
-  dimensions = {
-    ClusterName = aws_ecs_cluster.main.name
-    ServiceName = aws_ecs_service.app_service.name
-  }
-}
+#   dimensions = {
+#     ClusterName = aws_ecs_cluster.main.name
+#     ServiceName = aws_ecs_service.app_service.name
+#   }
+# }
 
-resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
-  alarm_name          = "${local.names.alb_name}-5xx-errors"
-  alarm_description   = "This alarm triggers if there are more than 10 5xx errors in a 5 minute period."
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = "1"
-  metric_name         = "HTTPCode_Target_5XX_Count"
-  namespace           = "AWS/ApplicationELB"
-  period              = "300"
-  statistic           = "Sum"
-  threshold           = "10"
+# resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
+#   alarm_name          = "${local.names.alb_name}-5xx-errors"
+#   alarm_description   = "This alarm triggers if there are more than 10 5xx errors in a 5 minute period."
+#   comparison_operator = "GreaterThanOrEqualToThreshold"
+#   evaluation_periods  = "1"
+#   metric_name         = "HTTPCode_Target_5XX_Count"
+#   namespace           = "AWS/ApplicationELB"
+#   period              = "300"
+#   statistic           = "Sum"
+#   threshold           = "10"
 
-  dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-  }
-}
+#   dimensions = {
+#     LoadBalancer = aws_lb.main.arn_suffix
+#   }
+# }
 
-resource "aws_cloudwatch_metric_alarm" "ecs_high_memory" {
-  alarm_name          = "${local.names.service_name}-high-memory"
-  alarm_description   = "This alarm triggers if the ECS service memory utilization is above 85% for 5 minutes."
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = "1"
-  metric_name         = "MemoryUtilization"
-  namespace           = "AWS/ECS"
-  period              = "300"
-  statistic           = "Average"
-  threshold           = "85"
+# resource "aws_cloudwatch_metric_alarm" "ecs_high_memory" {
+#   alarm_name          = "${local.names.service_name}-high-memory"
+#   alarm_description   = "This alarm triggers if the ECS service memory utilization is above 85% for 5 minutes."
+#   comparison_operator = "GreaterThanOrEqualToThreshold"
+#   evaluation_periods  = "1"
+#   metric_name         = "MemoryUtilization"
+#   namespace           = "AWS/ECS"
+#   period              = "300"
+#   statistic           = "Average"
+#   threshold           = "85"
 
-  dimensions = {
-    ClusterName = aws_ecs_cluster.main.name
-    ServiceName = aws_ecs_service.app_service.name
-  }
-}
+#   dimensions = {
+#     ClusterName = aws_ecs_cluster.main.name
+#     ServiceName = aws_ecs_service.app_service.name
+#   }
+# }
 
-# 15. CLOUDWATCH DASHBOARD
-resource "aws_cloudwatch_dashboard" "main_dashboard" {
-  dashboard_name = "${local.base_name}-dashboard"
+# # 15. CLOUDWATCH DASHBOARD
+# resource "aws_cloudwatch_dashboard" "main_dashboard" {
+#   dashboard_name = "${local.base_name}-dashboard"
 
-  dashboard_body = jsonencode({
-    widgets = [
-      {
-        type   = "metric",
-        x      = 0,
-        y      = 0,
-        width  = 12,
-        height = 6,
-        properties = {
-          metrics = [
-            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.app_service.name],
-            [".", "MemoryUtilization", ".", ".", ".", "."]
-          ],
-          period = 300,
-          stat   = "Average",
-          region = var.aws_region,
-          title  = "ECS Service CPU & Memory Utilization"
-        }
-      },
-      {
-        type   = "metric",
-        x      = 12,
-        y      = 0,
-        width  = 12,
-        height = 6,
-        properties = {
-          metrics = [
-            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.main.arn_suffix],
-            [".", "HTTPCode_Target_5XX_Count", ".", ".", { "stat": "Sum" }]
-          ],
-          period = 300,
-          stat   = "Sum",
-          region = var.aws_region,
-          title  = "ALB Requests & 5xx Errors"
-        }
-      },
-      {
-        type   = "log",
-        x      = 0,
-        y      = 7,
-        width  = 24,
-        height = 6,
-        properties = {
-          region = var.aws_region,
-          title  = "ECS Container Logs",
-          query = "SOURCE '${aws_cloudwatch_log_group.app_logs.name}' | fields @timestamp, @message | filter @message not like /GET \\/health/ and @message not like /ELB-HealthChecker/ | sort @timestamp desc | limit 200"
-        }
-      }
-    ]
-  })
-}
+#   dashboard_body = jsonencode({
+#     widgets = [
+#       {
+#         type   = "metric",
+#         x      = 0,
+#         y      = 0,
+#         width  = 12,
+#         height = 6,
+#         properties = {
+#           metrics = [
+#             ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.app_service.name],
+#             [".", "MemoryUtilization", ".", ".", ".", "."]
+#           ],
+#           period = 300,
+#           stat   = "Average",
+#           region = var.aws_region,
+#           title  = "ECS Service CPU & Memory Utilization"
+#         }
+#       },
+#       {
+#         type   = "metric",
+#         x      = 12,
+#         y      = 0,
+#         width  = 12,
+#         height = 6,
+#         properties = {
+#           metrics = [
+#             ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.main.arn_suffix],
+#             [".", "HTTPCode_Target_5XX_Count", ".", ".", { "stat": "Sum" }]
+#           ],
+#           period = 300,
+#           stat   = "Sum",
+#           region = var.aws_region,
+#           title  = "ALB Requests & 5xx Errors"
+#         }
+#       },
+#       {
+#         type   = "log",
+#         x      = 0,
+#         y      = 7,
+#         width  = 24,
+#         height = 6,
+#         properties = {
+#           region = var.aws_region,
+#           title  = "ECS Container Logs",
+#           query = "SOURCE '${aws_cloudwatch_log_group.app_logs.name}' | fields @timestamp, @message | filter @message not like /GET \\/health/ and @message not like /ELB-HealthChecker/ | sort @timestamp desc | limit 200"
+#         }
+#       }
+#     ]
+#   })
+# }
 
 # 16. ECS SERVICE AUTO SCALING (Conditionally Created)
 resource "aws_appautoscaling_target" "ecs_service_scaling_target" {
   count = var.service_autoscaling_enabled ? 1 : 0
 
-  max_capacity       = 4
+  max_capacity       = 2
   min_capacity       = 1
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app_service.name}"
   scalable_dimension = "ecs:service:DesiredCount"
@@ -504,6 +577,7 @@ resource "aws_apigatewayv2_integration" "alb" {
   integration_method = "ANY"
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.test_link.id
+  
 }
 
 # Route
@@ -519,6 +593,98 @@ resource "aws_apigatewayv2_stage" "default" {
   name        = "$default"
   auto_deploy = true
 }
+
+# S3 bucket to store uploaded files
+resource "aws_s3_bucket" "uploads" {
+  bucket = "${local.base_name}-btap-v1-uploads"
+  force_destroy = true  # auto-empty on destroy/replace
+}
+
+
+resource "aws_s3_bucket_lifecycle_configuration" "uploads_lifecycle" {
+  bucket = aws_s3_bucket.uploads.id
+
+  rule {
+    id     = "cleanup-old-files"
+    status = "Enabled"
+
+    expiration {
+      days = 1   # days = 7
+    }
+
+    filter {
+      prefix = "uploads/"
+    }
+  }
+}
+
+
+resource "aws_s3_bucket_public_access_block" "uploads_public_access" {
+  bucket                  = aws_s3_bucket.uploads.id
+  block_public_acls       = true
+  block_public_policy     = false  # ← change this
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "uploads_policy" {
+  bucket = aws_s3_bucket.uploads.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid = "AllowAccessThroughVPCe"
+        Effect = "Allow"
+        Principal = "*"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.uploads.arn,
+          "${aws_s3_bucket.uploads.arn}/*"
+        ]
+        # Condition = { # ← cuncomment this
+        #   StringEquals = {
+        #     "aws:sourceVpce" = "vpce-02d247e1c0e8ebdaf"       # "vpce-066ce0c2c7f5d4a55"  # ← NRCan's S3 VPC endpoint ID
+        #   }
+        # }
+      }
+    ]
+  })
+}
+
+# IAM policy for S3
+resource "aws_iam_policy" "ecs_s3_policy" {
+  name = "${local.base_name}-ecs-s3-policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.uploads.arn,
+          "${aws_s3_bucket.uploads.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_s3_policy_attach" {
+  role       = aws_iam_role.ecs_instance_role.name
+  policy_arn = aws_iam_policy.ecs_s3_policy.arn
+}
+
+
 
 # Outputs
 output "application_url" {
@@ -539,4 +705,19 @@ output "ecs_service_name" {
 output "ecs_task_definition_family" {
   description = "The family of the ECS task definition"
   value       = aws_ecs_task_definition.app.family
+}
+
+output "redis_endpoint" {
+  description = "The endpoint of the ElastiCache Redis cluster"
+  value       = aws_elasticache_cluster.redis.cache_nodes[0].address
+}
+
+output "redis_port" {
+  description = "The port of the ElastiCache Redis cluster"
+  value       = aws_elasticache_cluster.redis.cache_nodes[0].port
+}
+
+output "s3_bucket_name" {
+  description = "The name of the created S3 uploads bucket"
+  value       = aws_s3_bucket.uploads.bucket
 }

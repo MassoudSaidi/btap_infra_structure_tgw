@@ -160,5 +160,21 @@ resource "github_actions_secret" "version_string" {
   plaintext_value = var.version_string
 }
 
+resource "github_actions_secret" "redis_endpoint" {
+  repository      = var.github_repo
+  secret_name     = "REDIS_ENDPOINT"
+  plaintext_value = var.redis_endpoint
+}
 
+resource "github_actions_secret" "redis_port" {
+  repository      = var.github_repo
+  secret_name     = "REDIS_PORT"
+  plaintext_value = var.redis_port
+}
+
+resource "github_actions_secret" "bucket_name" {
+  repository      = var.github_repo
+  secret_name     = "BUCKET_NAME"
+  plaintext_value = var.bucket_name
+}
 

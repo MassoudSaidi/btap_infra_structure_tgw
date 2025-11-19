@@ -26,3 +26,10 @@ cognito_app_client_secret = "a4vrk8lcoxxxxxxxxxxxxxxxx1ijauhsol3"
 cognito_domain = "https://btap-identity-dev-auth.auth.ca-central-1.amazoncognito.com"
 app_base_url = "http://btap-app4-dev-alb-1261227763.ca-central-1.elb.amazonaws.com"
 version_string = "v1.3.0"
+
+# Redis configuration
+redis_endpoint = "btap-app-test3-dev-tgw-3-redis-cluster.xr97md.0001.cac1.cache.amazonaws.com"
+redis_port = "6379"
+
+# S3
+bucket_name = "btap-app-test3-dev-tgw-3-btap-v1-uploads"

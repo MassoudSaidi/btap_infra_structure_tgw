@@ -39,14 +39,14 @@ include "root" {
 # These are the input variables for this specific environment.
 # Terragrunt will pass these to your module's variables.tf file.
 inputs = {
-  project_name  = "btap-app-test2"
-  environment   = "dev-TGW-1"
+  project_name  = "btap-app-test3"  # only lowercase alphanumeric characters and hyphens
+  environment   = "dev-tgw-3"       # only lowercase alphanumeric characters and hyphens
   instance_type = "t3.large"
   task_cpu      = 1024
   task_memory   = 6144
-  surrogate_workload_vpc_id = "vpc-084061c0849490be3"  # "vpc-0809102c90503ef2d"  # From client's info; confirm if needed
+  surrogate_workload_vpc_id = "vpc-0c095736cf65241cb"  # "vpc-0809102c90503ef2d"  # From client's info; confirm if needed
 
-  # service_autoscaling_enabled=false
+  service_autoscaling_enabled=false
   
   # You can add any other variables from your variables.tf here
   # For example, if you wanted a different desired_count for dev:

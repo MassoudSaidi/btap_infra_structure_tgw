@@ -109,7 +109,7 @@ resource "aws_lambda_function" "cognito_add_groups_to_token" {
 resource "aws_cognito_user_pool" "main" {
   name = "${var.app_name}-${var.app_environment}-user-pool"
 
-  # ... other attributes like password_policy ...
+
 
   auto_verified_attributes = ["email"]
   username_attributes      = ["email"]
@@ -121,12 +121,16 @@ resource "aws_cognito_user_pool" "main" {
   software_token_mfa_configuration {
     enabled = true
   }
+  
+  admin_create_user_config {
+    allow_admin_create_user_only = true
+  }  
 
-  # --- MODIFICATION: Add Lambda trigger configuration ---
+  # Lambda trigger configuration 
   lambda_config {
     pre_token_generation = aws_lambda_function.cognito_add_groups_to_token.arn
   }
-  # --- End of Modification ---
+
 
   tags = {
     Name        = "${var.app_name}-${var.app_environment}-user-pool"

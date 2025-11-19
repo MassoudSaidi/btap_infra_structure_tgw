@@ -69,6 +69,45 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+
+resource "aws_s3_bucket" "test_bucket" {
+  bucket = "bsup-20251115" # CHANGE THIS to a unique name (only lowercase alphanumeric characters and hyphens allowed)
+  force_destroy = true  # Allows Terraform to delete non-empty buckets
+}
+
+resource "aws_iam_policy" "s3_access_policy" {
+  name        = "test-s3-access-policy"
+  description = "A policy that allows access to a specific S3 bucket."
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          "s3:ListBucket"
+        ]
+        Resource = aws_s3_bucket.test_bucket.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
+        Resource = "${aws_s3_bucket.test_bucket.arn}/*"
+      }
+    ]
+  })
+}
+
+
+resource "aws_iam_role_policy_attachment" "s3_access" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = aws_iam_policy.s3_access_policy.arn
+}
+
+
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "test-ec2-profile"
   role = aws_iam_role.ec2_role.name
@@ -99,6 +138,10 @@ resource "aws_instance" "test_ec2" {
     echo "Healthy" > /usr/share/nginx/html/health
     systemctl start nginx
     systemctl enable nginx
+
+    # Create a test file and upload to S3
+    echo "This is a test file from EC2." > /tmp/test.txt
+    aws s3 cp /tmp/test.txt s3://${aws_s3_bucket.test_bucket.bucket}/test.txt    # add $ to {aws_s3_bucket.test_bucket.bucket}/test.txt 
   EOF
 
   tags = { Name = "test-ec2" }

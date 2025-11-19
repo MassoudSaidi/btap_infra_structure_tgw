@@ -4,8 +4,8 @@
 locals {
   # --- Global Settings ---
   aws_region        = "ca-central-1"
-  company           = "btap-test2"
-  cognito_app_name  = "btap-identity-test2"
+  company           = "btap-test3"
+  cognito_app_name  = "btap-identity-test3"
 
 
 
