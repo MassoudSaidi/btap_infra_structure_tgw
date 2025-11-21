@@ -33,3 +33,8 @@ redis_port = "6379"
 
 # S3
 bucket_name = "btap-app-test3-dev-tgw-3-btap-v1-uploads"
+
+# toggle if testing shows existing
+create_oidc_provider = true
+# Set to false to skip if SCP blocks them.
+create_iam_resources = true

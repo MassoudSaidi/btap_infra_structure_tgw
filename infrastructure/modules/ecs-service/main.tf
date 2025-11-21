@@ -303,7 +303,7 @@ resource "aws_ecs_task_definition" "app" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/${local.names.service_name}"   # hard-coded name (AWS will auto-create if missing) originally was: aws_cloudwatch_log_group.app_logs.name
+          "awslogs-group"         = "/ecs/${local.names.service_name}"   # hard-coded name (AWS didn't auto-create) originally was: aws_cloudwatch_log_group.app_logs.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
@@ -596,7 +596,7 @@ resource "aws_apigatewayv2_stage" "default" {
 
 # S3 bucket to store uploaded files
 resource "aws_s3_bucket" "uploads" {
-  bucket = "${local.base_name}-btap-v1-uploads"
+  bucket = "${local.base_name}-bsup-v1-uploads"
   force_destroy = true  # auto-empty on destroy/replace
 }
 
@@ -622,7 +622,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads_lifecycle" {
 resource "aws_s3_bucket_public_access_block" "uploads_public_access" {
   bucket                  = aws_s3_bucket.uploads.id
   block_public_acls       = true
-  block_public_policy     = false  # ← change this
+  block_public_policy     = true  # ← change this to true
   ignore_public_acls      = true
   restrict_public_buckets = true
 }

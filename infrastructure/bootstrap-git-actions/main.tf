@@ -13,59 +13,123 @@ provider "github" {
   owner = var.github_owner
 }
 
-# # AWS Provider
-# provider "aws" {
-#   region      = var.aws_region 
-# }
-
 locals {
-  # Sanitize the GitHub owner name to be safe for use in AWS resource names
   safe_developer_name = lower(replace(var.developer_name, " ", "-"))
 }
 
-
 # -----------------
-# Create AWS IAM User for GitHub Actions
+# Create GitHub OIDC Provider (if not exists; AWS handles idempotency)
 # -----------------
-resource "aws_iam_user" "gha_user" {
-  # name = "github-actions-deployer"
-  name = "${local.safe_developer_name}-github-actions-deployer"
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.create_iam_resources && !var.create_oidc_provider ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
 }
 
-resource "aws_iam_user_policy_attachment" "ecs_access" {
-  user       = aws_iam_user.gha_user.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonECS_FullAccess"
-}
+resource "aws_iam_openid_connect_provider" "github" {
+  count = var.create_iam_resources && var.create_oidc_provider ? 1 : 0  # Var to toggle if testing shows existing
+  url   = "https://token.actions.githubusercontent.com"
 
-resource "aws_iam_access_key" "gha_key" {
-  user = aws_iam_user.gha_user.name
+  client_id_list = [
+    "sts.amazonaws.com",
+  ]
+  # Thumbprints omitted per 2025 AWS updates (GitHub now trusted root CA; no longer required)
+  # thumbprint_list = [
+  #   "6938fd4d98bab03faadb97b34396831e3780aea1",
+  #   "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+  # ]
 }
 
 # -----------------
-# Validate Docker Credentials
+# Create IAM Role for GitHub Actions (assumable via OIDC)
 # -----------------
-# resource "null_resource" "validate_docker_credentials" {
-#   provisioner "local-exec" {
-#     command = <<EOT
-#       echo "${var.docker_password}" | docker login -u "${var.docker_username}" --password-stdin
-#     EOT
-#   }
+resource "aws_iam_role" "gha_role" {
+  count = var.create_iam_resources ? 1 : 0
+  name = "${local.safe_developer_name}-github-actions-deployer-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = {
+          Federated = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
+        }
+        Action    = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_owner}/${var.github_repo}:*"  # Restrict to your repo/branch
+          }
+        }
+      },
+    ]
+  })
+}
+
+# Attach ECS policy (adjust as needed; least privilege ideal)
+# resource "aws_iam_role_policy_attachment" "ecs_access" {
+#   role       = aws_iam_role.gha_role.name
+#   policy_arn = "arn:aws:iam::aws:policy/AmazonECS_FullAccess"
 # }
 
-# -----------------
-# Push AWS IAM Keys to GitHub Secrets
-# -----------------
-resource "github_actions_secret" "aws_access_key_id" {
-  repository      = var.github_repo
-  secret_name     = "AWS_ACCESS_KEY_ID"
-  plaintext_value = aws_iam_access_key.gha_key.id
+resource "aws_iam_role_policy" "gha_ecs_inline" {
+  count = var.create_iam_resources ? 1 : 0
+  name   = "${local.safe_developer_name}-gha-ecs-deploy-inline"
+  role   = aws_iam_role.gha_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeServices",
+          "ecs:DescribeTaskDefinition",
+          "ecs:RegisterTaskDefinition",
+          "ecs:UpdateService",
+          "ecs:DescribeClusters",
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchGetImage",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:CompleteLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:InitiateLayerUpload",
+          "ecr:PutImage"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
-resource "github_actions_secret" "aws_secret_access_key" {
+# -----------------
+# Push Role ARN to GitHub Secrets (for Actions to assume)
+# -----------------
+resource "github_actions_secret" "aws_role_arn" {
+  count           = var.create_iam_resources ? 1 : 0
   repository      = var.github_repo
-  secret_name     = "AWS_SECRET_ACCESS_KEY"
-  plaintext_value = aws_iam_access_key.gha_key.secret
+  secret_name     = "AWS_ROLE_ARN"
+  plaintext_value = aws_iam_role.gha_role.arn
 }
+
+resource "github_actions_secret" "aws_region" {
+  count           = var.create_iam_resources ? 1 : 0
+  repository      = var.github_repo
+  secret_name     = "AWS_REGION"
+  plaintext_value = var.aws_region
+}
+
+
 
 # -----------------
 # Push Docker Credentials (only if valid)

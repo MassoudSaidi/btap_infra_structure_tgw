@@ -130,3 +130,14 @@ variable "bucket_name" {
   description = "S3 bucket name"
   type        = string
 }
+
+variable "create_oidc_provider" {
+  type    = bool
+  default = true
+}
+
+variable "create_iam_resources" {
+  type        = bool
+  default     = true
+  description = "Whether to create IAM resources (OIDC provider, role, policy). Set to false to skip if SCP blocks them."
+}
