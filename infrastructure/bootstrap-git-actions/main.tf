@@ -132,7 +132,7 @@ resource "github_actions_secret" "aws_region" {
 
 
 # -----------------
-# Push Docker Credentials (only if valid)
+# Push Docker Credentials 
 # -----------------
 resource "github_actions_secret" "docker_username" {
   repository      = var.github_repo
