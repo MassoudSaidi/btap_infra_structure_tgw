@@ -596,7 +596,7 @@ resource "aws_apigatewayv2_stage" "default" {
 
 # S3 bucket to store uploaded files
 resource "aws_s3_bucket" "uploads" {
-  bucket = "${local.base_name}-bsup-v1-uploads"
+  bucket = "${local.base_name}-bsup-v2-uploads"
   force_destroy = true  # auto-empty on destroy/replace
 }
 
@@ -646,11 +646,11 @@ resource "aws_s3_bucket_policy" "uploads_policy" {
           aws_s3_bucket.uploads.arn,
           "${aws_s3_bucket.uploads.arn}/*"
         ]
-        # Condition = { # ← cuncomment this
-        #   StringEquals = {
-        #     "aws:sourceVpce" = "vpce-02d247e1c0e8ebdaf"       # "vpce-066ce0c2c7f5d4a55"  # ← NRCan's S3 VPC endpoint ID
-        #   }
-        # }
+        Condition = { #  uncomment this
+          StringEquals = {
+            "aws:sourceVpce" = "vpce-02d247e1c0e8ebdaf"       # "vpce-066ce0c2c7f5d4a55"  # ← NRCan's S3 VPC endpoint ID
+          }
+        }
       }
     ]
   })

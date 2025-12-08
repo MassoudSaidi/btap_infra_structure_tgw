@@ -77,7 +77,8 @@ resource "aws_iam_role" "gha_role" {
 resource "aws_iam_role_policy" "gha_ecs_inline" {
   count = var.create_iam_resources ? 1 : 0
   name   = "${local.safe_developer_name}-gha-ecs-deploy-inline"
-  role   = aws_iam_role.gha_role.id
+  #role   = aws_iam_role.gha_role.id
+  role   = aws_iam_role.gha_role[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -119,7 +120,8 @@ resource "github_actions_secret" "aws_role_arn" {
   count           = var.create_iam_resources ? 1 : 0
   repository      = var.github_repo
   secret_name     = "AWS_ROLE_ARN"
-  plaintext_value = aws_iam_role.gha_role.arn
+  #plaintext_value = aws_iam_role.gha_role.arn
+  plaintext_value = aws_iam_role.gha_role[0].arn
 }
 
 resource "github_actions_secret" "aws_region" {
